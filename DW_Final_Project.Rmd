@@ -1,0 +1,228 @@
+---
+title: "DW_Final_project"
+author: "Jung Hyun Kim"
+date: "5/6/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(rvest)
+library(tidytext)
+library(wordcloud)
+```
+
+# Introduction
+
+Nowadays, average tablet usage time is about 15 hours a week, and it has already surpassed the average usage times of PC and smartphones. Also, according to the statistics from Statistita, about 20% of the total population uses tablet. Among all other global corporations that produce tablets, Apple and Samsung are currently two most dominant companies worldwide. Hence, this project mainly focuses on comparing the two leading tablets from the two companies.
+
+# Analysis
+
+```{r echo=FALSE}
+options(warn = -1)
+
+scraper <- function(ASIN, page){
+  
+  url <- paste0("https://www.amazon.com/product-reviews/",ASIN,"/?pageNumber=",page) %>% read_html()
+  
+  #Get Reveiws
+  reviews <- url %>% 
+    html_nodes("[class='a-size-base review-text review-text-content']") %>%
+    html_text() %>% trimws()
+  
+  #Get Ratings
+  rating <- url %>%
+    html_nodes("[data-hook='review-star-rating']") %>%
+    html_text() 
+  
+  return(tibble(reviews, rating))
+}
+```
+
+First we define the ASIN as can be found directly from the product information section in amazon.
+
+```{r echo=TRUE}
+ipad_pro <- 'B07K344KNG'
+galaxy <- 'B07Q5VPY2F'
+```
+
+Next we define a function (called "get_info") that takes as input the ASIN and page_upto variable. This function will continuously scrape reviews upto the page number "page_upto." Galaxy tab, for example, has only 40 pages of reviews, with 10 reviews in each page (which makes 400 reviews)
+
+```{r echo=FALSE}
+get_info <- function(ASIN, page_upto){
+  not_empty <- TRUE
+  full_review <- scraper(ASIN, '0')
+  i <- 1
+  
+  while (not_empty) {
+    if (i == page_upto) {
+      not_empty = FALSE
+    }
+    else {
+    full_review <- rbind(full_review, scraper(ASIN, toString(i)))
+    i = i + 1
+    }
+  }
+  
+  return(full_review)
+
+}
+```
+
+For instance, after running the function for galaxy, we get something like this: (For full view of the reviews and ratings, please refer to the respective csv file in github)
+
+```{r echo=TRUE}
+galaxy_review <- get_info(galaxy,40)
+galaxy_review
+```
+
+```{r}
+write.csv(galaxy_review,"Galaxy_review.csv", row.names = FALSE)
+```
+
+## 1. Galaxy Tab
+
+We first get word cloud using all 400 reviews as following. Although it seems a little bit too messy, we can see some words like thin, light, battery, etc. This implies that many consumers are interested in these things.
+
+```{r echo=FALSE}
+word_gal <- galaxy_review['reviews'] %>% 
+  unnest_tokens(output = "word", input = "reviews", token = "words") %>%
+  count(word) %>%
+  anti_join(tidytext::stop_words, by = "word") 
+
+wordcloud::wordcloud(words = word_gal$word, freq = word_gal$n)
+```
+
+To get a better idea on what consumer reviews are mostly mentioning about, we can do n-gram analysis. For Galaxy Tab, tri-gram showed better result than bi-gram, so we used n=3 in here. Note that many reviews are mentioning about battery life and "thin and light".
+
+```{r echo=FALSE}
+df <- data.frame(galaxy_review['reviews'])
+
+gal_trigram <- df %>%
+  unnest_tokens(output=word,input=reviews, token='ngrams', n=3) 
+
+gal_trigram %>%
+  count(word, sort = TRUE)
+```
+
+We can also easily extract the average rating, which is 4.2 for galaxy tab:
+
+```{r echo=TRUE}
+data.frame(galaxy_review['rating'])[,1] %>% substr(1,3) %>% as.numeric() %>% mean()
+```
+
+Now we create a new table by only using the reviews with one-star rating. This looks like the following:
+
+```{r echo=FALSE}
+one_col <- data.frame(galaxy_review['rating'])[,1] %>% substr(1,3) %>% as.numeric() == 1
+galaxy_review['rated_one'] = one_col
+df_3 <- data.frame(galaxy_review)
+one_star_full <- df_3[df_3['rated_one']==TRUE,]
+tibble(one_star_full)
+```
+
+Using only these bad reviews, we can do the bigram analysis separately. Note that many complaints are from the camera bump, screen, and the samsung pen.
+
+```{r echo=FALSE}
+df_4 <- data.frame(one_star_full['reviews'])
+
+gal_bigram <- df_4 %>%
+  unnest_tokens(output=word,input=reviews, token='ngrams', n=2) 
+
+gal_bigram %>%
+  count(word, sort = TRUE)
+```
+
+Also, we can show that word cloud looks like this using only one-star reviews. We can see some complaints about wifi, camera, screen, etc.
+
+```{r echo=FALSE}
+gal_wc_one <- one_star_full['reviews'] %>% 
+  unnest_tokens(output = "word", input = "reviews", token = "words") %>%
+  count(word) %>%
+  anti_join(tidytext::stop_words, by = "word") 
+
+wordcloud::wordcloud(words = gal_wc_one$word, freq = gal_wc_one$n)
+```
+
+
+## 2. iPad Pro
+
+Now we proceed to our second product, which is iPad Pro. There were far more reviews for ipad pro, so I decided to use 500 reviews for ipad. We can definitely use more, but that might take more time to run the code. Again, for the full dataset of reviews and ratings, you can refer to the csv file as provided in the github repository. 
+
+```{r echo=TRUE}
+ipad_review <- get_info(ipad_pro,50)
+ipad_review
+```
+
+```{r}
+write.csv(ipad_review,"iPad_review.csv", row.names = FALSE)
+```
+
+We get word cloud similarly using all 500 reviews. Although it may seem a little bit intimidating, but we can still see that a lot of reviews are mentioning about apple pencils, screens, keyboard, battery, etc.
+
+```{r echo=FALSE}
+word_ipad <- ipad_review['reviews'] %>% 
+  unnest_tokens(output = "word", input = "reviews", token = "words") %>%
+  count(word) %>%
+  anti_join(tidytext::stop_words, by = "word") 
+
+wordcloud::wordcloud(words = word_ipad$word, freq = word_ipad$n)
+```
+
+From the tri-gram output for ipad, you can see that a lot of people are interested in the compatibility of Apple Pencil.
+
+```{r echo=FALSE}
+dfi <- data.frame(ipad_review['reviews'])
+
+ipad_trigram <- dfi %>%
+  unnest_tokens(output=word,input=reviews, token='ngrams', n=3) 
+
+ipad_trigram %>%
+  count(word, sort = TRUE)
+```
+
+iPad has higher average rating of about 4.6.
+
+```{r echo=TRUE}
+data.frame(ipad_review['rating'])[,1] %>% substr(1,3) %>% as.numeric() %>% mean()
+```
+
+Now let's use only bad reviews. These are some bad reviews: 
+
+```{r echo=FALSE}
+one_coli <- data.frame(ipad_review['rating'])[,1] %>% substr(1,3) %>% as.numeric() == 1
+ipad_review['rated_one'] = one_coli
+df_3i <- data.frame(ipad_review)
+one_star_fulli <- df_3i[df_3i['rated_one']==TRUE,]
+tibble(one_star_fulli)
+```
+
+Doing the the bigram analysis separately, we can see that the common problem the consumers faced was about the headphone jack, adapters, etc.
+
+```{r echo=FALSE}
+df_4i <- data.frame(one_star_fulli['reviews'])
+
+ipad_bigram <- df_4i %>%
+  unnest_tokens(output=word,input=reviews, token='ngrams', n=3) 
+
+ipad_bigram %>%
+  count(word, sort = TRUE)
+```
+
+From the word cloud, we similarly can see that these reviews had complaints about headphone, battery, adaptors, etc.
+
+```{r echo=FALSE}
+ipad_wc_one <- one_star_fulli['reviews'] %>% 
+  unnest_tokens(output = "word", input = "reviews", token = "words") %>%
+  count(word) %>%
+  anti_join(tidytext::stop_words, by = "word") 
+
+wordcloud::wordcloud(words = ipad_wc_one$word, freq = ipad_wc_one$n)
+```
+
+# Conclusion
+
+In conclusion, we can see that good thing about iPad pro are apple pencil and battery life, and main complaints about iPad was about Headphone jack and adapters. For Galaxy Tab, many reviewers commented that the main advantage is that it is thin and light. However, bad things about it was the camera bump and samsung pen. The goal of this project was to help consumers make better decisions when chosing which tablet to buy. Knowing these information, I hope someone can make a better decision. Moreover, if we later get interested in some other product, we can simply get the ASIN for that product and simply use this code to generate similar things that I did here. Hence, this project can guide consumers to make comparisons between any products listed in Amazon. 
